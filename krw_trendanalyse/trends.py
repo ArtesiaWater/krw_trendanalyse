@@ -6,8 +6,8 @@ import pandas as pd
 
 
 # @njit
-def _compute_residual_stats(args, iref=0, z_score=1.96):
-    """Compute mean, variance, and confidence interval of residuals per period.
+def _compute_mean_per_series(args, iref=0, z_score=1.96):
+    """Compute mean, variance, and confidence interval of a time series per period.
 
     Parameters
     ----------
@@ -68,21 +68,83 @@ def _compute_residual_stats(args, iref=0, z_score=1.96):
     return mean_res, var_res, delta_var_res, ci
 
 
-def compute_residual_stats(*args, reference=0, alpha=0.95):
+def compute_mean_per_series(*args, reference=0, alpha=0.95):
     z_score = norm.ppf(1 - (1 - alpha) / 2)
-    mean, var, dvar, ci = _compute_residual_stats(args, iref=reference, z_score=z_score)
+    mean, var, dvar, ci = _compute_mean_per_series(
+        args, iref=reference, z_score=z_score
+    )
     # Create a DataFrame to store the results
     data = {
         "mean": mean,
         "var": var,
-        "dvar": dvar,
+        "Δvar": dvar,
         "ci": ci,
     }
     return pd.DataFrame(data)
 
 
-def model_residual_stats(ml: ps.Model, periods, iref=0, alpha=0.95):
-    """Compute mean, variance, and confidence interval of residuals per period.
+def mean_per_period(s: pd.Series, periods, iref=0, alpha=0.95):
+    """Compute mean, variance, and confidence interval of a time series per period.
+
+    Parameters
+    ----------
+    s : pandas.Series
+        times series
+    periods : list of tuples with str or pd.Timestamp
+        List of periods (tmin, tmax) to split the residuals.
+    iref : int
+        Index of the reference period (default is 0).
+    alpha : float
+        Significance level for the confidence interval (default is 0.95).
+
+    Returns
+    -------
+    mean : np.ndarray
+        Array of mean for each period.
+    var : np.ndarray
+        Array of variance for each period.
+    dvar : np.ndarray
+        Array of variance relative to the reference period.
+    ci : np.ndarray
+        Array of confidence intervals for mean estimate each period.
+    """
+    # Get residuals for each period
+    series_per_period = []
+    starts = []
+    ends = []
+    for tmin, tmax in periods:
+        if isinstance(tmin, str):
+            tmin = pd.Timestamp(tmin)
+        if isinstance(tmax, str):
+            if len(tmax) == 4:  # year only
+                tmax = pd.Timestamp(tmax) + pd.offsets.YearEnd(1)
+            else:
+                tmax = pd.Timestamp(tmax)
+        res_period = s.loc[tmin:tmax]
+        starts.append(tmin)
+        ends.append(tmax)
+        if res_period.empty:
+            raise ValueError(f"No residuals found for period {tmin} to {tmax}.")
+        series_per_period.append(res_period.values)
+    df = compute_mean_per_series(*series_per_period, reference=iref, alpha=alpha)
+    df["Δmean"] = df["mean"] - df["mean"].iloc[iref]
+    df["start"] = starts
+    df["end"] = ends
+    df["reference"] = ""
+    df["reference"].values[iref] = "*"
+    return df.loc[
+        :, ["reference", "start", "end", "mean", "var", "Δmean", "Δvar", "ci"]
+    ]
+
+
+def model_residual_period_stats(
+    ml: ps.Model,
+    periods,
+    iref=0,
+    alpha=0.95,
+    add_contributions=None,
+):
+    """Compute mean, variance, and confidence interval of model residuals per period.
 
     Parameters
     ----------
@@ -94,30 +156,33 @@ def model_residual_stats(ml: ps.Model, periods, iref=0, alpha=0.95):
         Index of the reference period (default is 0).
     alpha : float
         Significance level for the confidence interval (default is 0.95).
+    add_contributions : list of str
+        List of contributions to add to the residuals (default is None).
+        If None, only the residuals are used.
 
     Returns
     -------
     mean_res : np.ndarray
-        Array of mean residuals for each period.
+        Array of mean of residuals for each period.
     var_res : np.ndarray
         Array of variance of residuals for each period.
-    delta_var_res : np.ndarray
+    dvar : np.ndarray
         Array of variance relative to the reference period.
     ci : np.ndarray
         Array of confidence intervals for each period.
     """
-    # Get residuals for each period
     res = ml.residuals()
-    res_per_period = [res.loc[tmin:tmax].values for tmin, tmax in periods]
-    df = compute_residual_stats(*res_per_period, reference=iref, alpha=alpha)
-    df["start"] = [pd.Timestamp(tmin) for tmin, _ in periods]
-    df["end"] = [pd.Timestamp(tmax) for _, tmax in periods]
+    if add_contributions is not None:
+        for contribution in add_contributions:
+            c = ml.get_contribution(contribution)
+            res += c
+
+    df = mean_per_period(res, periods, iref=iref, alpha=alpha)
     df.index.name = ml.name
-    return df.loc[:, ["start", "end", "mean", "var", "dvar", "ci"]]
+    return df
 
 
 def aggregate_trends():
-
     # TODO: convert this code:
     VarRes = pd.DataFrame(data02)
 
@@ -136,22 +201,21 @@ def aggregate_trends():
     lower_bound = np.zeros(num_periods)
     upper_bound = np.zeros(num_periods)
 
-
     for k in range(MeanRes.shape[1]):
         for m in range(MeanRes.shape[0]):
             # Normalize mean
-            NormMean[m,k] = MeanRes.iloc[m,k] / np.sqrt(VarRes.iloc[m,k])
+            NormMean[m, k] = MeanRes.iloc[m, k] / np.sqrt(VarRes.iloc[m, k])
             # Calculate standard deviation
-            Stdev_1[m,k] = 1 / np.sqrt(VarRes.iloc[m,k])
-            Sqrt_VarRes[m,k] = np.sqrt(VarRes.iloc[m,k])
-            SUM_NormMean[k] = np.sum(NormMean[:,k])
-            SUM_Stdev[k] = np.sum(Stdev_1[:,k])
+            Stdev_1[m, k] = 1 / np.sqrt(VarRes.iloc[m, k])
+            Sqrt_VarRes[m, k] = np.sqrt(VarRes.iloc[m, k])
+            SUM_NormMean[k] = np.sum(NormMean[:, k])
+            SUM_Stdev[k] = np.sum(Stdev_1[:, k])
 
         # Calculate MEAN
         n = NormMean.shape[0]
         MEAN[k] = SUM_NormMean[k] / SUM_Stdev[k]
         MEANREF[k] = MEAN[k] - MEAN[0]
-        MEAN_Sqrt_VarRes[k] = np.mean(Sqrt_VarRes[:,k])
+        MEAN_Sqrt_VarRes[k] = np.mean(Sqrt_VarRes[:, k])
 
         # Calculate MEAN_STDEV
         MEAN_STDEV[k] = MEAN_Sqrt_VarRes[k] / np.sqrt(n)

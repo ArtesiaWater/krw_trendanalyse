@@ -41,6 +41,7 @@ trend_mean = krw.mean_per_period(series, periods)
 De implementatie in Python is geschreven door:
 
 - Davíd Brakenhoff, Artesia, 2025
+- Ruben Caljé, Artesia, 2025
 - Maud Theunissen, Provincie Noord Brabant, 2025
 
 De methode van trendanalyse is in het verleden ontwikkeld door o.a.

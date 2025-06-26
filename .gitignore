@@ -172,3 +172,8 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+
+pastas_db/
+data/
+*.zip
+*.xlsx

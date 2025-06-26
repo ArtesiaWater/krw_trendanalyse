@@ -1,13 +1,27 @@
-[project]
-name = "krw-trendanalyse"
-version = "0.1.0"
-description = "Add your description here"
-readme = "README.md"
-authors = [{ name = "Davíd Brakenhoff", email = "d.brakenhoff@artesia-water.nl" }]
-requires-python = ">=3.12"
-dependencies = []
-
-
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[project]
+name = "krw_trendanalyse"
+version = "0.1.0"
+description = "Trendanalyse voor grondwaterkwantiteit voor de Kader Richtlijn Water (KRW)."
+readme = "README.md"
+authors = [{ name = "Davíd Brakenhoff", email = "d.brakenhoff@artesia-water.nl" }]
+requires-python = ">=3.12"
+dependencies = ["numpy", "pandas", "matplotlib"]
+
+[project.urls]
+homepage = "https://github.com/ArtesiaWater/krw_trendanalyse"
+repository = "https://github.com/ArtesiaWater/krw_trendanalyse"
+# documentation = "https://krw_trendanalyse.readthedocs.io/en/latest/"
+
+[project.optional-dependencies]
+docs = [
+    "sphinx",
+    "sphinx-design",
+    "sphinx-rtd-theme",
+    "numpydoc",
+    "myst_nb",
+    "sphinx-autoapi",
+]

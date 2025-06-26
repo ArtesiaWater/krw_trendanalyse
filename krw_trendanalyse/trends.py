@@ -1,4 +1,3 @@
-from numba import njit
 import numpy as np
 from scipy.stats import norm
 import pastas as ps
@@ -132,6 +131,7 @@ def mean_per_period(s: pd.Series, periods, iref=0, alpha=0.95):
     df["end"] = ends
     df["reference"] = ""
     df["reference"].values[iref] = "*"
+    df.index.name = s.name
     return df.loc[
         :, ["reference", "start", "end", "mean", "var", "Δmean", "Δvar", "ci"]
     ]
@@ -143,6 +143,8 @@ def model_residual_period_stats(
     iref=0,
     alpha=0.95,
     add_contributions=None,
+    tmin=None,
+    tmax=None,
 ):
     """Compute mean, variance, and confidence interval of model residuals per period.
 
@@ -162,19 +164,24 @@ def model_residual_period_stats(
 
     Returns
     -------
-    mean_res : np.ndarray
-        Array of mean of residuals for each period.
-    var_res : np.ndarray
-        Array of variance of residuals for each period.
-    dvar : np.ndarray
-        Array of variance relative to the reference period.
-    ci : np.ndarray
-        Array of confidence intervals for each period.
+    df : pandas.DataFrame
+        DataFrame with mean, variance, delta variance and confidence interval
+        per period.
+         - mean_res: mean of residuals for each period.
+         - var_res: variance of residuals for each period.
+         - dvar: variance relative to the reference period.
+         - ci: confidence intervals for each period.
     """
-    res = ml.residuals()
+    if tmin is None:
+        tmin = pd.Timestamp(periods[0][0])
+    if tmax is None:
+        tmax = pd.Timestamp(periods[-1][1])
+    res = ml.residuals(tmin=tmin, tmax=tmax)
     if add_contributions is not None:
         for contribution in add_contributions:
-            c = ml.get_contribution(contribution)
+            c = ml.get_contribution(contribution, tmin=tmin, tmax=tmax)
+            # interpolate to match the residuals index
+            c = c.reindex(c.index.union(res.index)).interpolate().loc[res.index]
             res += c
 
     df = mean_per_period(res, periods, iref=iref, alpha=alpha)
@@ -182,45 +189,135 @@ def model_residual_period_stats(
     return df
 
 
-def aggregate_trends():
-    # TODO: convert this code:
-    VarRes = pd.DataFrame(data02)
+def aggregate_trends(trends, iref=0):
+    """Aggregate trends from multiple time series.
 
-    num_periods = MeanRes.shape[1]
+    Parameters
+    ----------
+    trends : list of pandas.DataFrame
+        List of DataFrames with columns 'mean' and 'var' for each time series.
+        Each DataFrame should have a datetime index.
+    iref : int
+        Index of the reference period (default is 0).
+
+    Returns
+    -------
+    df : pandas.DataFrame
+        DataFrame with aggregated mean, variance, standard deviation, confidence interval,
+        lower and upper bounds for each period. Columns are:
+        - agg_mean: aggregated mean for each period.
+        - Δagg_mean: change in aggregated mean relative to the reference period.
+        - σ: standard deviation of the aggregated mean.
+        - ci: confidence interval for the aggregated mean.
+        - lower_bound: lower bound of the confidence interval.
+        - upper_bound: upper bound of the confidence interval.
+    """
+    # collect means and variances, different series as rows, periods as columns
+    means = pd.concat(
+        [t["mean"] for t in trends], axis=1, keys=[t.index.name for t in trends]
+    ).T
+    variances = pd.concat(
+        [t["var"] for t in trends], axis=1, keys=[t.index.name for t in trends]
+    ).T
+    # deal with 0 variance
+    variances[variances == 0.0] = np.nan
+    stdev = np.sqrt(variances)
+    norm_mean = means / stdev
+    mean = norm_mean.sum(axis=0) / (1 / stdev).sum(axis=0)
+    mean_ref = mean - mean.iloc[iref]  # reference to first period
+    # mean of std devs, corrected for NaNs
+    mean_std = stdev.mean(axis=0) / np.sqrt((~stdev.isna()).sum(axis=0))
+    ci = 1.96 * mean_std  # 95% confidence interval
+    lb = mean_ref - ci
+    ub = mean_ref + ci
+
+    df = pd.concat(
+        [mean, mean_ref, mean_std, ci, lb, ub],
+        axis=1,
+        keys=["agg_mean", "Δagg_mean", "σ", "ci", "lower_bound", "upper_bound"],
+    )
+    df.index.name = "period"
+    return df
+
+
+def _aggregate_trends_original(trends, iref=0):
+    """Aggregate trends from multiple time series.
+
+    Original implementation to compare with the Python-style aggregate_trends.
+
+    Parameters
+    ----------
+    trends : list of pandas.DataFrame
+        List of DataFrames with columns 'mean' and 'var' for each time series.
+        Each DataFrame should have a datetime index.
+    iref : int
+        Index of the reference period (default is 0).
+
+    Returns
+    -------
+    df : pandas.DataFrame
+        DataFrame with aggregated mean, variance, standard deviation, confidence interval,
+        lower and upper bounds for each period. Columns are:
+        - agg_mean: aggregated mean for each period.
+        - Δagg_mean: change in aggregated mean relative to the reference period.
+        - σ: standard deviation of the aggregated mean.
+        - ci: confidence interval for the aggregated mean.
+        - lower_bound: lower bound of the confidence interval.
+        - upper_bound: upper bound of the confidence interval.
+    """
+    # collect means and variances, different series as rows, periods as columns
+    means = pd.concat(
+        [t["mean"] for t in trends], axis=1, keys=[t.index.name for t in trends]
+    ).T
+    variances = pd.concat(
+        [t["var"] for t in trends], axis=1, keys=[t.index.name for t in trends]
+    ).T
+    n_periods = means.columns.size
+    n_series = means.index.size
     # Initialize arrays
-    NormMean = np.zeros(MeanRes.shape)
-    Stdev_1 = np.zeros(MeanRes.shape)
-    Sqrt_VarRes = np.zeros(MeanRes.shape)
-    SUM_NormMean = np.zeros(num_periods)
-    SUM_Stdev = np.zeros(num_periods)
-    MEAN = np.zeros(num_periods)
-    MEANREF = np.zeros(num_periods)
-    MEAN_Sqrt_VarRes = np.zeros(num_periods)
-    MEAN_STDEV = np.zeros(num_periods)
-    confidence_interval = np.zeros(num_periods)
-    lower_bound = np.zeros(num_periods)
-    upper_bound = np.zeros(num_periods)
+    norm_mean = np.zeros(means.shape)
+    stdev_1 = np.zeros(means.shape)
+    stdev = np.zeros(means.shape)
+    sum_norm_mean = np.zeros(n_periods)
+    sum_stdev = np.zeros(n_periods)
+    mean = np.zeros(n_periods)
+    meanref = np.zeros(n_periods)
+    mean_sqrt_var = np.zeros(n_periods)
+    mean_stdev = np.zeros(n_periods)
+    confidence_interval = np.zeros(n_periods)
+    lower_bound = np.zeros(n_periods)
+    upper_bound = np.zeros(n_periods)
 
-    for k in range(MeanRes.shape[1]):
-        for m in range(MeanRes.shape[0]):
+    for k in range(n_periods):
+        for m in range(n_series):
             # Normalize mean
-            NormMean[m, k] = MeanRes.iloc[m, k] / np.sqrt(VarRes.iloc[m, k])
+            norm_mean[m, k] = means.iloc[m, k] / np.sqrt(variances.iloc[m, k])
             # Calculate standard deviation
-            Stdev_1[m, k] = 1 / np.sqrt(VarRes.iloc[m, k])
-            Sqrt_VarRes[m, k] = np.sqrt(VarRes.iloc[m, k])
-            SUM_NormMean[k] = np.sum(NormMean[:, k])
-            SUM_Stdev[k] = np.sum(Stdev_1[:, k])
+            stdev_1[m, k] = 1 / np.sqrt(variances.iloc[m, k])
+            stdev[m, k] = np.sqrt(variances.iloc[m, k])
+            sum_norm_mean[k] = np.sum(norm_mean[:, k])
+            sum_stdev[k] = np.sum(stdev_1[:, k])
 
         # Calculate MEAN
-        n = NormMean.shape[0]
-        MEAN[k] = SUM_NormMean[k] / SUM_Stdev[k]
-        MEANREF[k] = MEAN[k] - MEAN[0]
-        MEAN_Sqrt_VarRes[k] = np.mean(Sqrt_VarRes[:, k])
+        n = norm_mean.shape[0]
+        mean[k] = sum_norm_mean[k] / sum_stdev[k]
+        meanref[k] = mean[k] - mean[0]
+        mean_sqrt_var[k] = np.mean(stdev[:, k])
 
         # Calculate MEAN_STDEV
-        MEAN_STDEV[k] = MEAN_Sqrt_VarRes[k] / np.sqrt(n)
+        mean_stdev[k] = mean_sqrt_var[k] / np.sqrt(n)
 
         # Calculate 95% Confidence Interval
-        confidence_interval[k] = 1.96 * MEAN_STDEV[k]
-        lower_bound[k] = MEANREF[k] - confidence_interval[k]
-        upper_bound[k] = MEANREF[k] + confidence_interval[k]
+        confidence_interval[k] = 1.96 * mean_stdev[k]
+        lower_bound[k] = meanref[k] - confidence_interval[k]
+        upper_bound[k] = meanref[k] + confidence_interval[k]
+
+    df = pd.DataFrame(index=range(n_periods))
+    df["mean"] = mean
+    df["Δmean"] = meanref
+    df["σ"] = mean_stdev
+    df["ci"] = confidence_interval
+    df["lower_bound"] = lower_bound
+    df["upper_bound"] = upper_bound
+    df.index.name = "period"
+    return df

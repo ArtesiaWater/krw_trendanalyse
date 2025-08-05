@@ -10,10 +10,23 @@ visualiseren.
 
 ## Installatie
 
-Installeren kan met:
+De krw_trendanalyse package is momenteel nog niet beschikbaar op PyPi. Installeren kan momenteel met:
 
-`pip install krw_trendanalyse`
+```bash
+pip install git+https://github.com/ArtesiaWater/krw_trendanalyse.git
+```
 
+Wil je eerst lokaal de code klonen (bijvoorbeeld om eraan te werken), dan kun je de repository downloaden als ZIP via de groene <> Code knop rechtsboven op GitHub, of via de command line:
+```bash
+git clone https://github.com/ArtesiaWater/krw_trendanalyse.git
+```
+Pak de ZIP uit (indien van toepassing) en navigeer in de terminal naar de map waarin de krw_trendanalyse-directory staat:
+
+```bash
+cd <download_map>/krw_trendanalyse
+pip install -e . # make sure environment is activated
+```
+De `-e` tag ("editable mode") is handig voor ontwikkeling: wijzigingen in de code zijn direct beschikbaar zonder herinstallatie.
 
 ## Gebruik
 

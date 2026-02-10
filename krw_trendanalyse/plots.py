@@ -278,6 +278,7 @@ def histogram(
     cmap=None,
     title=None,
     figsize=(10, 6),
+    ax = None,
     **kwargs,
 ):
     """Plot histogram of trends.
@@ -299,6 +300,7 @@ def histogram(
         of series are appended to the title.
     figsize : tuple, optional
         Size of the figure (default is (10, 6)).
+    ax: plt.Axes
     **kwargs : dict, optional
 
 
@@ -313,7 +315,8 @@ def histogram(
         keys=[t.index.name for t in trends],
     ).T
 
-    _, ax = plt.subplots(figsize=figsize)
+    if ax is None:
+        _, ax = plt.subplots(figsize=figsize)
 
     if isinstance(bins, int):
         v = dmeans.squeeze().abs().max()

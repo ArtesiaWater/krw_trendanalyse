@@ -7,7 +7,9 @@ name = "krw_trendanalyse"
 version = "0.1.0"
 description = "Trendanalyse voor grondwaterkwantiteit voor de Kader Richtlijn Water (KRW)."
 readme = "README.md"
-authors = [{ name = "Davíd Brakenhoff", email = "d.brakenhoff@artesia-water.nl" }]
+authors = [
+    { name = "Davíd Brakenhoff", email = "d.brakenhoff@artesia-water.nl" },
+]
 requires-python = ">=3.12"
 dependencies = ["numpy", "pandas", "matplotlib"]
 
@@ -25,3 +27,9 @@ docs = [
     "myst_nb",
     "sphinx-autoapi",
 ]
+
+[tool.ruff]
+extend-include = ["*.ipynb"]
+lint.extend-select = ["I"]
+show-fixes = true
+fix = true

@@ -1,3 +1,5 @@
+from typing import Literal
+
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
@@ -38,10 +40,10 @@ def plot_mean_per_period(
         norm = CenteredNorm(vcenter=0.0, halfrange=df["Δmean"].abs().max())
 
     meanref = df["mean"].loc[df["reference"] == "*"].item()
+
     if ax is None:
-        f, ax = plt.subplots(1, 1, figsize=(10, 3))
-    else:
-        f = ax.figure
+        _, ax = plt.subplots(1, 1, figsize=(10, 3))
+
     if plot_series:
         ax.plot(series.index, series.values, label=series.name, color="k", lw=1.0)
 
@@ -137,9 +139,7 @@ def plot_dmean_per_period(
 
     meanref = df["mean"].loc[df["reference"] == "*"].item()
     if ax is None:
-        f, ax = plt.subplots(1, 1, figsize=(10, 3))
-    else:
-        f = ax.figure
+        _, ax = plt.subplots(1, 1, figsize=(10, 3))
 
     add_to_legend = True
     for i, irow in df.iterrows():
@@ -271,14 +271,14 @@ def plot_model_residuals_summary(ml, df, add_contributions=None, axes=None, colo
 
 
 def histogram(
-    trends,
-    method: str,
+    trends: list[pd.DataFrame],
+    method: Literal["A", "B", "C"],
     bins: int | np.ndarray,
-    iper=1,
-    cmap=None,
-    title=None,
-    figsize=(10, 6),
-    ax = None,
+    iper: int = 1,
+    cmap: mpl.colors.Colormap | None = None,
+    title: str | None = None,
+    figsize: tuple[float, float] = (10.0, 6.0),
+    ax: plt.Axes | None = None,
     **kwargs,
 ):
     """Plot histogram of trends.
@@ -300,7 +300,8 @@ def histogram(
         of series are appended to the title.
     figsize : tuple, optional
         Size of the figure (default is (10, 6)).
-    ax: plt.Axes
+    ax: plt.Axes, optional
+        Axes object to plot on. If None, a new figure and axes are created.
     **kwargs : dict, optional
 
 
@@ -349,17 +350,18 @@ def histogram(
 
 
 def map_trends(
-    x,
-    y,
-    trends,
-    bins,
-    method,
-    iper=1,
-    title=None,
-    annotate=True,
-    figsize=(10, 6),
+    x: np.ndarray,
+    y: np.ndarray,
+    trends: list[pd.DataFrame],
+    bins: int | np.ndarray,
+    method: Literal["A", "B", "C"],
+    iper: int = 1,
+    title: str | None = None,
+    annotate: bool = True,
+    figsize: tuple[float, float] = (10.0, 6.0),
+    ax: plt.Axes | None = None,
     **kwargs,
-):
+) -> plt.Axes:
     """Plot trends on a map.
 
     Parameters
@@ -383,6 +385,8 @@ def map_trends(
         Whether to annotate the points with trend values (default is True).
     figsize : tuple, optional
         Size of the figure (default is (10, 6)).
+    ax: plt.Axes | None = None, optional
+        Axes object to plot on. If None, a new figure and axes are created.
     **kwargs : dict, optional
         Additional keyword arguments passed to the scatter plot.
 
@@ -393,12 +397,15 @@ def map_trends(
     """
     dmean = np.array([tr_i.loc[iper, "Δmean"] for tr_i in trends])
     if isinstance(bins, int):
-        v = dmean.squeeze().abs().max() * 100
+        v = np.max(np.abs(dmean.squeeze())) * 100
         bins = np.linspace(-v, v, bins + 1)
     cmap = plt.get_cmap("RdYlBu")
     norm = mpl.colors.BoundaryNorm(bins, ncolors=cmap.N, clip=True)
 
-    fig, ax = plt.subplots(figsize=figsize)
+    if ax is None:
+        fig, ax = plt.subplots(figsize=figsize)
+    else:
+        fig = ax.get_figure()
     ax.set_aspect("equal")
     sm = ax.scatter(
         x,
@@ -434,7 +441,7 @@ def map_trends(
     if title is None:
         title = ""
     ax.set_title(
-        f"{title} (methode {method}, " f"n={len(trends)})",
+        f"{title} (methode {method}, n={len(trends)})",
         fontsize=10,
     )
     return ax

@@ -1,7 +1,7 @@
 import numpy as np
-from scipy.stats import norm
-import pastas as ps
 import pandas as pd
+import pastas as ps
+from scipy.stats import norm
 
 
 # @njit

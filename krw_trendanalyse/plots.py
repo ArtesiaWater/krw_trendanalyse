@@ -356,10 +356,12 @@ def map_trends(
     bins: int | np.ndarray,
     method: Literal["A", "B", "C"],
     iper: int = 1,
+    cmap: mpl.colors.Colormap | None = None,
     title: str | None = None,
     annotate: bool = True,
     figsize: tuple[float, float] = (10.0, 6.0),
     ax: plt.Axes | None = None,
+    add_colorbar: bool = True,
     **kwargs,
 ) -> plt.Axes:
     """Plot trends on a map.
@@ -387,6 +389,8 @@ def map_trends(
         Size of the figure (default is (10, 6)).
     ax: plt.Axes | None = None, optional
         Axes object to plot on. If None, a new figure and axes are created.
+    add_colorbar : bool, optional
+        Whether to add a colorbar to the plot (default is True).
     **kwargs : dict, optional
         Additional keyword arguments passed to the scatter plot.
 
@@ -397,9 +401,14 @@ def map_trends(
     """
     dmean = np.array([tr_i.loc[iper, "Δmean"] for tr_i in trends])
     if isinstance(bins, int):
-        v = np.max(np.abs(dmean.squeeze())) * 100
+        v = np.max(np.abs(dmean.squeeze()))
         bins = np.linspace(-v, v, bins + 1)
-    cmap = plt.get_cmap("RdYlBu")
+
+    if cmap is None:
+        cmap = plt.get_cmap("RdYlBu")
+    if isinstance(cmap, str):
+        cmap = plt.get_cmap(cmap)
+
     norm = mpl.colors.BoundaryNorm(bins, ncolors=cmap.N, clip=True)
 
     if ax is None:
@@ -410,7 +419,7 @@ def map_trends(
     sm = ax.scatter(
         x,
         y,
-        c=dmean * 100.0,
+        c=dmean,
         cmap=cmap,
         norm=norm,
         s=kwargs.pop("s", 70),
@@ -419,8 +428,7 @@ def map_trends(
         **kwargs,
     )
     if annotate:
-        for ix, iy, idmean in zip(x, y, dmean):
-            value = idmean * 100  # convert to cm
+        for ix, iy, value in zip(x, y, dmean):
             color = cmap(norm(value))
             # Calculate luminance to decide text color
             luminance = 0.299 * color[0] + 0.587 * color[1] + 0.114 * color[2]
@@ -433,8 +441,9 @@ def map_trends(
                 ha="center",
                 va="center",
             )
-    fig.colorbar(sm, ax=ax, pad=0.02, label="Trend [cm]")
-    plt.yticks(rotation=90, va="center")
+    if add_colorbar:
+        fig.colorbar(sm, ax=ax, pad=0.02, label="Trend [m]")
+    ax.yaxis.set_tick_params(rotation=90)
     ax.set_xlabel("X [m RD]")
     ax.set_ylabel("Y [m RD]")
     ax.grid(color="k", linestyle=":", alpha=0.5)

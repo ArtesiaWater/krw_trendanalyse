@@ -415,7 +415,7 @@ def map_trends(
         fig, ax = plt.subplots(figsize=figsize)
     else:
         fig = ax.get_figure()
-    ax.set_aspect("equal")
+    # ax.set_aspect("equal")
     sm = ax.scatter(
         x,
         y,

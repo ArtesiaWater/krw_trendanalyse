@@ -342,10 +342,87 @@ def histogram(
     ax.grid(True)
     ax.set_ylabel("Number of series [-]")
     ax.set_xlabel("Trend [m]")
-    if title is None:
-        title = ""
-    title = f"{title}(methode {method}, n={dmeans.index.size})"
-    ax.set_title(title)
+
+    title = "" if title is None else title
+    full_title = f"{title}(methode {method}, n={len(dmeans)})"
+    ax.set_title(full_title)
+    return ax
+
+
+def histobar(
+    trends: list[pd.DataFrame],
+    method: Literal["A", "B", "C"],
+    bins: int | np.ndarray | list,
+    iper: int = 1,
+    cmap: mpl.colors.Colormap | str | None = None,
+    title: str | None = None,
+    figsize: tuple[float, float] = (10.0, 6.0),
+    ax: plt.Axes | None = None,
+    **kwargs,
+):
+    """Plot histogram of trends with equal-width bars and boundary labels."""
+
+    dmeans = pd.concat(
+        [t.loc[[iper], "Δmean"] for t in trends],
+        axis=1,
+        keys=[t.index.name for t in trends],
+    ).T
+
+    if ax is None:
+        _, ax = plt.subplots(figsize=figsize)
+
+    if isinstance(bins, int):
+        v = dmeans.abs().max()
+        bins = np.linspace(-v, v, bins + 1)
+    else:
+        bins = np.asarray(bins)
+
+    if cmap is None:
+        cmap = plt.colormaps.get_cmap("RdYlBu")
+    elif isinstance(cmap, str):
+        cmap = plt.colormaps.get_cmap(cmap)
+
+    counts, edges = np.histogram(dmeans, bins=bins)
+
+    # 1. Plot the bars as categorical items
+    bar_positions = np.arange(len(counts))
+    colors = cmap(np.linspace(0, 1, len(counts)))
+
+    ax.bar(
+        bar_positions,
+        counts,
+        width=1.0,  # Make bars touch completely
+        color=colors,
+        edgecolor="black",
+        alpha=0.9,
+        **kwargs,
+    )
+
+    # --- 2. MATCH THE ORIGINAL LABELS ---
+    # Since bars are at x = 0, 1, 2... with width=1.0,
+    # the boundaries between them are at x = 0.5, 1.5, 2.5...
+    tick_positions = np.arange(len(counts) - 1) + 0.5
+
+    # The labels should be the inner bin edges (ignoring the far left/right boundaries)
+    # Using :g formats it cleanly without trailing zeros (e.g., -50.0 becomes -50)
+    tick_labels = [f"{val:g}" for val in edges[1:-1]]
+    tick_labels[0] = f"<{tick_labels[0]}"  # First label indicates "less than"
+    tick_labels[-1] = f">{tick_labels[-1]}"  # Last label indicates "greater than"
+
+    ax.set_xticks(tick_positions)
+    ax.set_xticklabels(tick_labels, rotation=0, ha="center")
+
+    # 3. Formatting
+    # Enabling the grid now perfectly draws the vertical lines between the bars!
+    ax.grid(True, linestyle="--", alpha=0.5)
+
+    ax.set_ylabel("Aantal buizen (-)")  # Matched your image's y-label
+    ax.set_xlabel("Trend [m]")
+    ax.set_xlim(-0.5, len(counts) - 0.5)  # Set x-limits to show all bars fully
+
+    title = "" if title is None else title
+    full_title = f"{title}(methode {method}, n={len(dmeans)})"
+    ax.set_title(full_title)
     return ax
 
 

@@ -1,3 +1,5 @@
+from typing import Literal
+
 import numpy as np
 import pandas as pd
 import pastas as ps
@@ -189,7 +191,11 @@ def model_residual_period_stats(
     return df
 
 
-def aggregate_trends(trends, iref=0):
+def aggregate_trends(
+    trends: list[pd.DataFrame],
+    iref: int = 0,
+    method: Literal["inverse_std", "inverse_variance"] = "inverse_std",
+):
     """Aggregate trends from multiple time series.
 
     Parameters
@@ -199,18 +205,15 @@ def aggregate_trends(trends, iref=0):
         Each DataFrame should have a datetime index.
     iref : int
         Index of the reference period (default is 0).
+    method : str
+        Weighting method to use. Options are 'inverse_std' (default)
+        or 'inverse_variance'.
 
     Returns
     -------
     df : pandas.DataFrame
         DataFrame with aggregated mean, variance, standard deviation, confidence interval,
-        lower and upper bounds for each period. Columns are:
-        - agg_mean: aggregated mean for each period.
-        - Δagg_mean: change in aggregated mean relative to the reference period.
-        - σ: standard deviation of the aggregated mean.
-        - ci: confidence interval for the aggregated mean.
-        - lower_bound: lower bound of the confidence interval.
-        - upper_bound: upper bound of the confidence interval.
+        lower and upper bounds for each period.
     """
     # collect means and variances, different series as rows, periods as columns
     means = pd.concat(
@@ -219,14 +222,26 @@ def aggregate_trends(trends, iref=0):
     variances = pd.concat(
         [t["var"] for t in trends], axis=1, keys=[t.index.name for t in trends]
     ).T
+
     # deal with 0 variance
     variances[variances == 0.0] = np.nan
-    stdev = np.sqrt(variances)
-    norm_mean = means / stdev
-    mean = norm_mean.sum(axis=0) / (1 / stdev).sum(axis=0)
+
+    # Select weighting method
+    if method == "inverse_variance":
+        weights = 1 / variances
+        mean = (means * weights).sum(axis=0) / weights.sum(axis=0)
+        mean_std = np.sqrt(1 / weights.sum(axis=0))
+    elif method == "inverse_stdev":
+        stdev = np.sqrt(variances)
+        weights = 1 / stdev
+        mean = (means * weights).sum(axis=0) / weights.sum(axis=0)
+        # mean of std devs, corrected for NaNs (Original logic)
+        mean_std = stdev.mean(axis=0) / np.sqrt((~stdev.isna()).sum(axis=0))
+    else:
+        raise ValueError("method must be either 'inverse_variance' or 'inverse_stdev'")
+
     mean_ref = mean - mean.iloc[iref]  # reference to first period
-    # mean of std devs, corrected for NaNs
-    mean_std = stdev.mean(axis=0) / np.sqrt((~stdev.isna()).sum(axis=0))
+
     ci = 1.96 * mean_std  # 95% confidence interval
     lb = mean_ref - ci
     ub = mean_ref + ci

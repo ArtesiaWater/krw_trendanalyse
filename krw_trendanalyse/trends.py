@@ -216,27 +216,43 @@ def aggregate_trends(
         lower and upper bounds for each period.
     """
     # collect means and variances, different series as rows, periods as columns
-    means = pd.concat(
-        [t["mean"] for t in trends], axis=1, keys=[t.index.name for t in trends]
-    ).T
-    variances = pd.concat(
-        [t["var"] for t in trends], axis=1, keys=[t.index.name for t in trends]
-    ).T
+    means = pd.concat([t["mean"] for t in trends], axis=1, keys=range(len(trends))).T
+    variances = pd.concat([t["var"] for t in trends], axis=1, keys=range(len(trends))).T
 
     # deal with 0 variance
     variances[variances == 0.0] = np.nan
 
     # Select weighting method
+    # To correctly aggregate trends (Δagg_mean = agg_mean[k] - agg_mean[ref]),
+    # we need CONSTANT per-series weights so that:
+    #   Δagg_mean = Σ(w_i * Δmean_i) / Σ(w_i)
+    # Period-varying weights cause the aggregated difference to reflect
+    # changing weighting schemes rather than a genuine trend.
+    # The weight per series is based on Δvar = var[comparison] + var[ref],
+    # i.e. the variance of the trend estimate itself.
+    comparison_col = next(i for i in range(variances.shape[1]) if i != iref)
+    ref_var = variances.iloc[:, iref]
+    delta_var = variances.iloc[:, comparison_col].add(ref_var)
+    delta_var[delta_var == 0.0] = np.nan
+
     if method == "inverse_variance":
-        weights = 1 / variances
+        w = 1.0 / delta_var  # constant per-series weight (shape: n_series)
+        weights = pd.DataFrame(
+            np.tile(w.values[:, None], (1, means.shape[1])),
+            index=means.index,
+            columns=means.columns,
+        )
         mean = (means * weights).sum(axis=0) / weights.sum(axis=0)
         mean_std = np.sqrt(1 / weights.sum(axis=0))
     elif method == "inverse_stdev":
-        stdev = np.sqrt(variances)
-        weights = 1 / stdev
+        w = 1.0 / np.sqrt(delta_var)  # constant per-series weight
+        weights = pd.DataFrame(
+            np.tile(w.values[:, None], (1, means.shape[1])),
+            index=means.index,
+            columns=means.columns,
+        )
         mean = (means * weights).sum(axis=0) / weights.sum(axis=0)
-        # mean of std devs, corrected for NaNs (Original logic)
-        mean_std = stdev.mean(axis=0) / np.sqrt((~stdev.isna()).sum(axis=0))
+        mean_std = np.sqrt(delta_var).mean(axis=0) / np.sqrt((~delta_var.isna()).sum())
     else:
         raise ValueError("method must be either 'inverse_variance' or 'inverse_stdev'")
 
@@ -281,12 +297,8 @@ def _aggregate_trends_original(trends, iref=0):
         - upper_bound: upper bound of the confidence interval.
     """
     # collect means and variances, different series as rows, periods as columns
-    means = pd.concat(
-        [t["mean"] for t in trends], axis=1, keys=[t.index.name for t in trends]
-    ).T
-    variances = pd.concat(
-        [t["var"] for t in trends], axis=1, keys=[t.index.name for t in trends]
-    ).T
+    means = pd.concat([t["mean"] for t in trends], axis=1, keys=range(len(trends))).T
+    variances = pd.concat([t["var"] for t in trends], axis=1, keys=range(len(trends))).T
     n_periods = means.columns.size
     n_series = means.index.size
     # Initialize arrays

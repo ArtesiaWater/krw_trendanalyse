@@ -45,7 +45,15 @@ def plot_mean_per_period(
         _, ax = plt.subplots(1, 1, figsize=(10, 3))
 
     if plot_series:
-        ax.plot(series.index, series.values, label=series.name, color="k", lw=1.0)
+        ax.plot(
+            series.index,
+            series.values,
+            label=series.name,
+            color="k",
+            lw=1.0,
+            marker=".",
+            markersize=4,
+        )
 
     add_to_legend = True
     for i, irow in df.iterrows():
@@ -54,7 +62,7 @@ def plot_mean_per_period(
                 ax.plot(
                     [irow["start"], irow["end"]],
                     [irow["mean"], irow["mean"]],
-                    color="k",
+                    color="gray",
                     label="reference period",
                     lw=2.0,
                 )
@@ -81,7 +89,7 @@ def plot_mean_per_period(
                     [irow["start"], irow["end"]],
                     irow["mean"] - irow["ci"],
                     irow["mean"] + irow["ci"],
-                    alpha=0.2,
+                    alpha=0.3,
                     label="confidence interval (95%)" if add_to_legend else None,
                     color=color,
                 )
@@ -106,7 +114,7 @@ def plot_mean_per_period(
         ax.axvline(t, color="k", ls="dashed", lw=1.0)
     ax.axvline(df["end"].iloc[-1], color="k", ls="dashed", lw=1.0)
     ax.legend(loc=(0, 1), frameon=False, ncol=3, fontsize="small")
-    ax.set_ylabel("[m NAP]")
+    ax.set_ylabel("(m NAP)")
     return ax
 
 
@@ -208,7 +216,7 @@ def plot_model_residuals_summary(ml, df, add_contributions=None, axes=None, colo
         label=f"simulation (R$^2$={ml.stats.rsq():.3f})",
         color=color,
     )
-    axes[0].set_ylabel("[m NAP]")
+    axes[0].set_ylabel("(m NAP)")
 
     if color is None:
         color = "C0"
@@ -257,7 +265,7 @@ def plot_model_residuals_summary(ml, df, add_contributions=None, axes=None, colo
                 color=color,
             )
             add_to_legend = False
-    axes[2].set_ylabel("[m]")
+    axes[2].set_ylabel("(m)")
 
     for iax in axes:
         for t in df["start"]:
@@ -340,8 +348,8 @@ def histogram(
     for patch, color in zip(patches, colors):
         patch.set_facecolor(color)
     ax.grid(True)
-    ax.set_ylabel("Number of series [-]")
-    ax.set_xlabel("Trend [m]")
+    ax.set_ylabel("Number of series (-)")
+    ax.set_xlabel("Trend (m)")
 
     title = "" if title is None else title
     full_title = f"{title}(methode {method}, n={len(dmeans)})"
@@ -417,7 +425,7 @@ def histobar(
     ax.grid(True, linestyle="--", alpha=0.5)
 
     ax.set_ylabel("Aantal buizen (-)")  # Matched your image's y-label
-    ax.set_xlabel("Trend [m]")
+    ax.set_xlabel("Trend (m)")
     ax.set_xlim(-0.5, len(counts) - 0.5)  # Set x-limits to show all bars fully
 
     title = "" if title is None else title

@@ -56,7 +56,7 @@ def _compute_mean_per_series(args, iref=0, z_score=1.96):
         corr = np.correlate(res_notnull, res_notnull, "full")
         corr = corr[len(res_notnull) :] / corr[len(res_notnull) - 1]
         # Calculate variance of residuals
-        ivar = np.var(res_notnull)
+        ivar = np.var(res_notnull, ddof=1)
         var_res[k] = (ivar / n) * (1 + (2 / n) * (np.arange(n - 1, 0, -1) * corr).sum())
 
     # Calculate variance relative to reference period

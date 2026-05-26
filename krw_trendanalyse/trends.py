@@ -194,7 +194,7 @@ def model_residual_period_stats(
 def aggregate_trends(
     trends: list[pd.DataFrame],
     iref: int = 0,
-    method: Literal["inverse_std", "inverse_variance"] = "inverse_std",
+    method: Literal["inverse_stdev", "inverse_variance"] = "inverse_stdev",
 ):
     """Aggregate trends from multiple time series.
 
@@ -206,7 +206,7 @@ def aggregate_trends(
     iref : int
         Index of the reference period (default is 0).
     method : str
-        Weighting method to use. Options are 'inverse_std' (default)
+        Weighting method to use. Options are 'inverse_stdev' (default)
         or 'inverse_variance'.
 
     Returns
@@ -253,6 +253,7 @@ def aggregate_trends(
         )
         mean = (means * weights).sum(axis=0) / weights.sum(axis=0)
         mean_std = np.sqrt(delta_var).mean(axis=0) / np.sqrt((~delta_var.isna()).sum())
+        mean_std = pd.Series(mean_std, index=mean.index)
     else:
         raise ValueError("method must be either 'inverse_variance' or 'inverse_stdev'")
 

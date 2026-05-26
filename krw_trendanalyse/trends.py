@@ -132,7 +132,7 @@ def mean_per_period(s: pd.Series, periods, iref=0, alpha=0.95):
     df["start"] = starts
     df["end"] = ends
     df["reference"] = ""
-    df["reference"].values[iref] = "*"
+    df.iloc[iref, df.columns.get_loc("reference")] = "*"
     df.index.name = s.name
     return df.loc[
         :, ["reference", "start", "end", "mean", "var", "Δmean", "Δvar", "ci"]
@@ -220,25 +220,25 @@ def aggregate_trends(
     variances = pd.concat(
         [t["Δvar"] for t in trends], axis=1, keys=range(len(trends))
     ).T
-    N = means.index.size
 
     comparison_cols = [i for i in range(variances.shape[1]) if i != iref]
     delta_means = means.iloc[:, comparison_cols]
-    variances = variances.replace(0.0, np.nan)
-    delta_vars = variances.iloc[:, comparison_cols]
+    delta_vars = variances.iloc[:, comparison_cols].copy()
+    delta_vars = delta_vars.mask(delta_vars == 0, np.nan)  # Avoid division by zero
+    N = (~delta_vars.isna()).sum(axis=0)  # number of series
 
     weights = 1.0 / delta_vars if method == "inverse_var" else 1.0 / delta_vars.pow(0.5)
+
     agg_mean = (delta_means * weights).sum(axis=0) / weights.sum(axis=0)
     agg_mean_var = (
         1 / weights.sum(axis=0)
         if method == "inverse_var"
-        else delta_vars.pow(0.5).mean(axis=0) / np.sqrt(N)
+        else (delta_vars.pow(0.5).mean(axis=0) / N.pow(0.5)).pow(2)
     )
-
-    ci = 1.96 * np.sqrt(agg_mean_var)  # 95% confidence interval
+    agg_ci = 1.96 * agg_mean_var.pow(0.5)  # 95% confidence interval
 
     df = pd.concat(
-        [agg_mean, agg_mean_var, ci],
+        [agg_mean, agg_mean_var, agg_ci],
         axis=1,
         keys=["Δmean_agg", "Δvar_agg", "ci"],
     )

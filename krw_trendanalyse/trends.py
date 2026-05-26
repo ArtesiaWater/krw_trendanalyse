@@ -216,8 +216,10 @@ def aggregate_trends(
         lower and upper bounds for each period.
     """
     # collect means and variances, different series as rows, periods as columns
-    means = pd.concat([t["mean"] for t in trends], axis=1, keys=range(len(trends))).T
-    variances = pd.concat([t["var"] for t in trends], axis=1, keys=range(len(trends))).T
+    means = pd.concat([t["Δmean"] for t in trends], axis=1, keys=range(len(trends))).T
+    variances = pd.concat(
+        [t["Δvar"] for t in trends], axis=1, keys=range(len(trends))
+    ).T
 
     # deal with 0 variance
     variances[variances == 0.0] = np.nan
@@ -231,8 +233,7 @@ def aggregate_trends(
     # The weight per series is based on Δvar = var[comparison] + var[ref],
     # i.e. the variance of the trend estimate itself.
     comparison_col = next(i for i in range(variances.shape[1]) if i != iref)
-    ref_var = variances.iloc[:, iref]
-    delta_var = variances.iloc[:, comparison_col].add(ref_var)
+    delta_var = variances.iloc[:, comparison_col]
     delta_var[delta_var == 0.0] = np.nan
 
     if method == "inverse_variance":
@@ -257,16 +258,16 @@ def aggregate_trends(
     else:
         raise ValueError("method must be either 'inverse_variance' or 'inverse_stdev'")
 
-    mean_ref = mean - mean.iloc[iref]  # reference to first period
+    # mean_ref = mean - mean.iloc[iref]  # reference to first period
 
     ci = 1.96 * mean_std  # 95% confidence interval
-    lb = mean_ref - ci
-    ub = mean_ref + ci
+    lb = mean - ci
+    ub = mean + ci
 
     df = pd.concat(
-        [mean, mean_ref, mean_std, ci, lb, ub],
+        [mean, mean_std, ci, lb, ub],
         axis=1,
-        keys=["agg_mean", "Δagg_mean", "σ", "ci", "lower_bound", "upper_bound"],
+        keys=["agg_mean", "σ", "ci", "lower_bound", "upper_bound"],
     )
     df.index.name = "period"
     return df

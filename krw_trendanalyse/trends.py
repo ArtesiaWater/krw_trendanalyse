@@ -194,7 +194,7 @@ def model_residual_period_stats(
 def aggregate_trends(
     trends: list[pd.DataFrame],
     iref: int = 0,
-    method: Literal["inverse_stdev", "inverse_variance"] = "inverse_stdev",
+    method: Literal["inverse_std", "inverse_var"] = "inverse_std",
 ):
     """Aggregate trends from multiple time series.
 
@@ -206,8 +206,8 @@ def aggregate_trends(
     iref : int
         Index of the reference period (default is 0).
     method : str
-        Weighting method to use. Options are 'inverse_stdev' (default)
-        or 'inverse_variance'.
+        Weighting method to use. Options are 'inverse_std' (default)
+        or 'inverse_var'.
 
     Returns
     -------
@@ -220,54 +220,27 @@ def aggregate_trends(
     variances = pd.concat(
         [t["Δvar"] for t in trends], axis=1, keys=range(len(trends))
     ).T
+    N = means.index.size
 
-    # deal with 0 variance
-    variances[variances == 0.0] = np.nan
+    comparison_cols = [i for i in range(variances.shape[1]) if i != iref]
+    delta_means = means.iloc[:, comparison_cols]
+    variances = variances.replace(0.0, np.nan)
+    delta_vars = variances.iloc[:, comparison_cols]
 
-    # Select weighting method
-    # To correctly aggregate trends (Δagg_mean = agg_mean[k] - agg_mean[ref]),
-    # we need CONSTANT per-series weights so that:
-    #   Δagg_mean = Σ(w_i * Δmean_i) / Σ(w_i)
-    # Period-varying weights cause the aggregated difference to reflect
-    # changing weighting schemes rather than a genuine trend.
-    # The weight per series is based on Δvar = var[comparison] + var[ref],
-    # i.e. the variance of the trend estimate itself.
-    comparison_col = next(i for i in range(variances.shape[1]) if i != iref)
-    delta_var = variances.iloc[:, comparison_col]
-    delta_var[delta_var == 0.0] = np.nan
+    weights = 1.0 / delta_vars if method == "inverse_var" else 1.0 / delta_vars.pow(0.5)
+    agg_mean = (delta_means * weights).sum(axis=0) / weights.sum(axis=0)
+    agg_mean_var = (
+        1 / weights.sum(axis=0)
+        if method == "inverse_var"
+        else delta_vars.pow(0.5).mean(axis=0) / np.sqrt(N)
+    )
 
-    if method == "inverse_variance":
-        w = 1.0 / delta_var  # constant per-series weight (shape: n_series)
-        weights = pd.DataFrame(
-            np.tile(w.values[:, None], (1, means.shape[1])),
-            index=means.index,
-            columns=means.columns,
-        )
-        mean = (means * weights).sum(axis=0) / weights.sum(axis=0)
-        mean_std = np.sqrt(1 / weights.sum(axis=0))
-    elif method == "inverse_stdev":
-        w = 1.0 / np.sqrt(delta_var)  # constant per-series weight
-        weights = pd.DataFrame(
-            np.tile(w.values[:, None], (1, means.shape[1])),
-            index=means.index,
-            columns=means.columns,
-        )
-        mean = (means * weights).sum(axis=0) / weights.sum(axis=0)
-        mean_std = np.sqrt(delta_var).mean(axis=0) / np.sqrt((~delta_var.isna()).sum())
-        mean_std = pd.Series(mean_std, index=mean.index)
-    else:
-        raise ValueError("method must be either 'inverse_variance' or 'inverse_stdev'")
-
-    # mean_ref = mean - mean.iloc[iref]  # reference to first period
-
-    ci = 1.96 * mean_std  # 95% confidence interval
-    lb = mean - ci
-    ub = mean + ci
+    ci = 1.96 * np.sqrt(agg_mean_var)  # 95% confidence interval
 
     df = pd.concat(
-        [mean, mean_std, ci, lb, ub],
+        [agg_mean, agg_mean_var, ci],
         axis=1,
-        keys=["agg_mean", "σ", "ci", "lower_bound", "upper_bound"],
+        keys=["Δmean_agg", "Δvar_agg", "ci"],
     )
     df.index.name = "period"
     return df

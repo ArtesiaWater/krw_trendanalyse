@@ -1,3 +1,5 @@
+from typing import Literal
+
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
@@ -38,12 +40,20 @@ def plot_mean_per_period(
         norm = CenteredNorm(vcenter=0.0, halfrange=df["Δmean"].abs().max())
 
     meanref = df["mean"].loc[df["reference"] == "*"].item()
+
     if ax is None:
-        f, ax = plt.subplots(1, 1, figsize=(10, 3))
-    else:
-        f = ax.figure
+        _, ax = plt.subplots(1, 1, figsize=(10, 3))
+
     if plot_series:
-        ax.plot(series.index, series.values, label=series.name, color="k", lw=1.0)
+        ax.plot(
+            series.index,
+            series.values,
+            label=series.name,
+            color="k",
+            lw=1.0,
+            marker=".",
+            markersize=4,
+        )
 
     add_to_legend = True
     for i, irow in df.iterrows():
@@ -52,7 +62,7 @@ def plot_mean_per_period(
                 ax.plot(
                     [irow["start"], irow["end"]],
                     [irow["mean"], irow["mean"]],
-                    color="k",
+                    color="gray",
                     label="reference period",
                     lw=2.0,
                 )
@@ -79,7 +89,7 @@ def plot_mean_per_period(
                     [irow["start"], irow["end"]],
                     irow["mean"] - irow["ci"],
                     irow["mean"] + irow["ci"],
-                    alpha=0.2,
+                    alpha=0.3,
                     label="confidence interval (95%)" if add_to_legend else None,
                     color=color,
                 )
@@ -104,7 +114,7 @@ def plot_mean_per_period(
         ax.axvline(t, color="k", ls="dashed", lw=1.0)
     ax.axvline(df["end"].iloc[-1], color="k", ls="dashed", lw=1.0)
     ax.legend(loc=(0, 1), frameon=False, ncol=3, fontsize="small")
-    ax.set_ylabel("[m NAP]")
+    ax.set_ylabel("(m NAP)")
     return ax
 
 
@@ -137,9 +147,7 @@ def plot_dmean_per_period(
 
     meanref = df["mean"].loc[df["reference"] == "*"].item()
     if ax is None:
-        f, ax = plt.subplots(1, 1, figsize=(10, 3))
-    else:
-        f = ax.figure
+        _, ax = plt.subplots(1, 1, figsize=(10, 3))
 
     add_to_legend = True
     for i, irow in df.iterrows():
@@ -208,7 +216,7 @@ def plot_model_residuals_summary(ml, df, add_contributions=None, axes=None, colo
         label=f"simulation (R$^2$={ml.stats.rsq():.3f})",
         color=color,
     )
-    axes[0].set_ylabel("[m NAP]")
+    axes[0].set_ylabel("(m NAP)")
 
     if color is None:
         color = "C0"
@@ -257,7 +265,7 @@ def plot_model_residuals_summary(ml, df, add_contributions=None, axes=None, colo
                 color=color,
             )
             add_to_legend = False
-    axes[2].set_ylabel("[m]")
+    axes[2].set_ylabel("(m)")
 
     for iax in axes:
         for t in df["start"]:
@@ -271,13 +279,14 @@ def plot_model_residuals_summary(ml, df, add_contributions=None, axes=None, colo
 
 
 def histogram(
-    trends,
-    method: str,
+    trends: list[pd.DataFrame],
+    method: Literal["A", "B", "C"],
     bins: int | np.ndarray,
-    iper=1,
-    cmap=None,
-    title=None,
-    figsize=(10, 6),
+    iper: int = 1,
+    cmap: mpl.colors.Colormap | None = None,
+    title: str | None = None,
+    figsize: tuple[float, float] = (10.0, 6.0),
+    ax: plt.Axes | None = None,
     **kwargs,
 ):
     """Plot histogram of trends.
@@ -299,6 +308,8 @@ def histogram(
         of series are appended to the title.
     figsize : tuple, optional
         Size of the figure (default is (10, 6)).
+    ax: plt.Axes, optional
+        Axes object to plot on. If None, a new figure and axes are created.
     **kwargs : dict, optional
 
 
@@ -313,7 +324,8 @@ def histogram(
         keys=[t.index.name for t in trends],
     ).T
 
-    _, ax = plt.subplots(figsize=figsize)
+    if ax is None:
+        _, ax = plt.subplots(figsize=figsize)
 
     if isinstance(bins, int):
         v = dmeans.squeeze().abs().max()
@@ -336,27 +348,107 @@ def histogram(
     for patch, color in zip(patches, colors):
         patch.set_facecolor(color)
     ax.grid(True)
-    ax.set_ylabel("Number of series [-]")
-    ax.set_xlabel("Trend [m]")
-    if title is None:
-        title = ""
-    title = f"{title}(methode {method}, n={dmeans.index.size})"
-    ax.set_title(title)
+    ax.set_ylabel("Number of series (-)")
+    ax.set_xlabel("Trend (m)")
+
+    title = "" if title is None else title
+    full_title = f"{title}(methode {method}, n={len(dmeans)})"
+    ax.set_title(full_title)
+    return ax
+
+
+def histobar(
+    trends: list[pd.DataFrame],
+    method: Literal["A", "B", "C"],
+    bins: int | np.ndarray | list,
+    iper: int = 1,
+    cmap: mpl.colors.Colormap | str | None = None,
+    title: str | None = None,
+    figsize: tuple[float, float] = (10.0, 6.0),
+    ax: plt.Axes | None = None,
+    **kwargs,
+):
+    """Plot histogram of trends with equal-width bars and boundary labels."""
+
+    dmeans = pd.concat(
+        [t.loc[[iper], "Δmean"] for t in trends],
+        axis=1,
+        keys=[t.index.name for t in trends],
+    ).T
+
+    if ax is None:
+        _, ax = plt.subplots(figsize=figsize)
+
+    if isinstance(bins, int):
+        v = dmeans.abs().max()
+        bins = np.linspace(-v, v, bins + 1)
+    else:
+        bins = np.asarray(bins)
+
+    if cmap is None:
+        cmap = plt.colormaps.get_cmap("RdYlBu")
+    elif isinstance(cmap, str):
+        cmap = plt.colormaps.get_cmap(cmap)
+
+    counts, edges = np.histogram(dmeans, bins=bins)
+
+    # 1. Plot the bars as categorical items
+    bar_positions = np.arange(len(counts))
+    colors = cmap(np.linspace(0, 1, len(counts)))
+
+    ax.bar(
+        bar_positions,
+        counts,
+        width=1.0,  # Make bars touch completely
+        color=colors,
+        edgecolor="black",
+        alpha=0.9,
+        **kwargs,
+    )
+
+    # --- 2. MATCH THE ORIGINAL LABELS ---
+    # Since bars are at x = 0, 1, 2... with width=1.0,
+    # the boundaries between them are at x = 0.5, 1.5, 2.5...
+    tick_positions = np.arange(len(counts) - 1) + 0.5
+
+    # The labels should be the inner bin edges (ignoring the far left/right boundaries)
+    # Using :g formats it cleanly without trailing zeros (e.g., -50.0 becomes -50)
+    tick_labels = [f"{val:g}" for val in edges[1:-1]]
+    tick_labels[0] = f"<{tick_labels[0]}"  # First label indicates "less than"
+    tick_labels[-1] = f">{tick_labels[-1]}"  # Last label indicates "greater than"
+
+    ax.set_xticks(tick_positions)
+    ax.set_xticklabels(tick_labels, rotation=0, ha="center")
+
+    # 3. Formatting
+    # Enabling the grid now perfectly draws the vertical lines between the bars!
+    ax.grid(True, linestyle="--", alpha=0.5)
+
+    ax.set_ylabel("Aantal buizen (-)")  # Matched your image's y-label
+    ax.set_xlabel("Trend (m)")
+    ax.set_xlim(-0.5, len(counts) - 0.5)  # Set x-limits to show all bars fully
+
+    title = "" if title is None else title
+    full_title = f"{title}(methode {method}, n={len(dmeans)})"
+    ax.set_title(full_title)
     return ax
 
 
 def map_trends(
-    x,
-    y,
-    trends,
-    bins,
-    method,
-    iper=1,
-    title=None,
-    annotate=True,
-    figsize=(10, 6),
+    x: np.ndarray,
+    y: np.ndarray,
+    trends: list[pd.DataFrame],
+    bins: int | np.ndarray,
+    method: Literal["A", "B", "C"],
+    iper: int = 1,
+    cmap: mpl.colors.Colormap | None = None,
+    title: str | None = None,
+    annotate: bool = True,
+    figsize: tuple[float, float] = (10.0, 6.0),
+    ax: plt.Axes | None = None,
+    add_colorbar: bool = True,
     **kwargs,
-):
+) -> plt.Axes:
     """Plot trends on a map.
 
     Parameters
@@ -380,6 +472,10 @@ def map_trends(
         Whether to annotate the points with trend values (default is True).
     figsize : tuple, optional
         Size of the figure (default is (10, 6)).
+    ax: plt.Axes | None = None, optional
+        Axes object to plot on. If None, a new figure and axes are created.
+    add_colorbar : bool, optional
+        Whether to add a colorbar to the plot (default is True).
     **kwargs : dict, optional
         Additional keyword arguments passed to the scatter plot.
 
@@ -390,17 +486,25 @@ def map_trends(
     """
     dmean = np.array([tr_i.loc[iper, "Δmean"] for tr_i in trends])
     if isinstance(bins, int):
-        v = dmean.squeeze().abs().max() * 100
+        v = np.max(np.abs(dmean.squeeze()))
         bins = np.linspace(-v, v, bins + 1)
-    cmap = plt.get_cmap("RdYlBu")
+
+    if cmap is None:
+        cmap = plt.get_cmap("RdYlBu")
+    if isinstance(cmap, str):
+        cmap = plt.get_cmap(cmap)
+
     norm = mpl.colors.BoundaryNorm(bins, ncolors=cmap.N, clip=True)
 
-    fig, ax = plt.subplots(figsize=figsize)
-    ax.set_aspect("equal")
+    if ax is None:
+        fig, ax = plt.subplots(figsize=figsize)
+    else:
+        fig = ax.get_figure()
+    # ax.set_aspect("equal")
     sm = ax.scatter(
         x,
         y,
-        c=dmean * 100.0,
+        c=dmean,
         cmap=cmap,
         norm=norm,
         s=kwargs.pop("s", 70),
@@ -409,8 +513,7 @@ def map_trends(
         **kwargs,
     )
     if annotate:
-        for ix, iy, idmean in zip(x, y, dmean):
-            value = idmean * 100  # convert to cm
+        for ix, iy, value in zip(x, y, dmean):
             color = cmap(norm(value))
             # Calculate luminance to decide text color
             luminance = 0.299 * color[0] + 0.587 * color[1] + 0.114 * color[2]
@@ -423,15 +526,16 @@ def map_trends(
                 ha="center",
                 va="center",
             )
-    fig.colorbar(sm, ax=ax, pad=0.02, label="Trend [cm]")
-    plt.yticks(rotation=90, va="center")
+    if add_colorbar:
+        fig.colorbar(sm, ax=ax, pad=0.02, label="Trend [m]")
+    ax.yaxis.set_tick_params(rotation=90)
     ax.set_xlabel("X [m RD]")
     ax.set_ylabel("Y [m RD]")
     ax.grid(color="k", linestyle=":", alpha=0.5)
     if title is None:
         title = ""
     ax.set_title(
-        f"{title} (methode {method}, " f"n={len(trends)})",
+        f"{title} (methode {method}, n={len(trends)})",
         fontsize=10,
     )
     return ax

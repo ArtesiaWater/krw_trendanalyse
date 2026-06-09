@@ -1,7 +1,9 @@
+from typing import Literal
+
 import numpy as np
-from scipy.stats import norm
-import pastas as ps
 import pandas as pd
+import pastas as ps
+from scipy.stats import norm
 
 
 # @njit
@@ -54,7 +56,7 @@ def _compute_mean_per_series(args, iref=0, z_score=1.96):
         corr = np.correlate(res_notnull, res_notnull, "full")
         corr = corr[len(res_notnull) :] / corr[len(res_notnull) - 1]
         # Calculate variance of residuals
-        ivar = np.var(res_notnull)
+        ivar = np.var(res_notnull, ddof=1)
         var_res[k] = (ivar / n) * (1 + (2 / n) * (np.arange(n - 1, 0, -1) * corr).sum())
 
     # Calculate variance relative to reference period
@@ -130,7 +132,7 @@ def mean_per_period(s: pd.Series, periods, iref=0, alpha=0.95):
     df["start"] = starts
     df["end"] = ends
     df["reference"] = ""
-    df["reference"].values[iref] = "*"
+    df.iloc[iref, df.columns.get_loc("reference")] = "*"
     df.index.name = s.name
     return df.loc[
         :, ["reference", "start", "end", "mean", "var", "Δmean", "Δvar", "ci"]
@@ -189,7 +191,11 @@ def model_residual_period_stats(
     return df
 
 
-def aggregate_trends(trends, iref=0):
+def aggregate_trends(
+    trends: list[pd.DataFrame],
+    iref: int = 0,
+    method: Literal["inverse_std", "inverse_var"] = "inverse_std",
+):
     """Aggregate trends from multiple time series.
 
     Parameters
@@ -199,42 +205,42 @@ def aggregate_trends(trends, iref=0):
         Each DataFrame should have a datetime index.
     iref : int
         Index of the reference period (default is 0).
+    method : str
+        Weighting method to use. Options are 'inverse_std' (default)
+        or 'inverse_var'.
 
     Returns
     -------
     df : pandas.DataFrame
         DataFrame with aggregated mean, variance, standard deviation, confidence interval,
-        lower and upper bounds for each period. Columns are:
-        - agg_mean: aggregated mean for each period.
-        - Δagg_mean: change in aggregated mean relative to the reference period.
-        - σ: standard deviation of the aggregated mean.
-        - ci: confidence interval for the aggregated mean.
-        - lower_bound: lower bound of the confidence interval.
-        - upper_bound: upper bound of the confidence interval.
+        lower and upper bounds for each period.
     """
     # collect means and variances, different series as rows, periods as columns
-    means = pd.concat(
-        [t["mean"] for t in trends], axis=1, keys=[t.index.name for t in trends]
-    ).T
+    means = pd.concat([t["Δmean"] for t in trends], axis=1, keys=range(len(trends))).T
     variances = pd.concat(
-        [t["var"] for t in trends], axis=1, keys=[t.index.name for t in trends]
+        [t["Δvar"] for t in trends], axis=1, keys=range(len(trends))
     ).T
-    # deal with 0 variance
-    variances[variances == 0.0] = np.nan
-    stdev = np.sqrt(variances)
-    norm_mean = means / stdev
-    mean = norm_mean.sum(axis=0) / (1 / stdev).sum(axis=0)
-    mean_ref = mean - mean.iloc[iref]  # reference to first period
-    # mean of std devs, corrected for NaNs
-    mean_std = stdev.mean(axis=0) / np.sqrt((~stdev.isna()).sum(axis=0))
-    ci = 1.96 * mean_std  # 95% confidence interval
-    lb = mean_ref - ci
-    ub = mean_ref + ci
+
+    comparison_cols = [i for i in range(variances.shape[1]) if i != iref]
+    delta_means = means.iloc[:, comparison_cols]
+    delta_vars = variances.iloc[:, comparison_cols].copy()
+    delta_vars = delta_vars.mask(delta_vars == 0, np.nan)  # Avoid division by zero
+    N = (~delta_vars.isna()).sum(axis=0)  # number of series
+
+    weights = 1.0 / delta_vars if method == "inverse_var" else 1.0 / delta_vars.pow(0.5)
+
+    agg_mean = (delta_means * weights).sum(axis=0) / weights.sum(axis=0)
+    agg_mean_var = (
+        1 / weights.sum(axis=0)
+        if method == "inverse_var"
+        else (delta_vars.pow(0.5).mean(axis=0) / N.pow(0.5)).pow(2)
+    )
+    agg_ci = 1.96 * agg_mean_var.pow(0.5)  # 95% confidence interval
 
     df = pd.concat(
-        [mean, mean_ref, mean_std, ci, lb, ub],
+        [agg_mean, agg_mean_var, agg_ci],
         axis=1,
-        keys=["agg_mean", "Δagg_mean", "σ", "ci", "lower_bound", "upper_bound"],
+        keys=["Δmean_agg", "Δvar_agg", "ci"],
     )
     df.index.name = "period"
     return df
@@ -266,12 +272,8 @@ def _aggregate_trends_original(trends, iref=0):
         - upper_bound: upper bound of the confidence interval.
     """
     # collect means and variances, different series as rows, periods as columns
-    means = pd.concat(
-        [t["mean"] for t in trends], axis=1, keys=[t.index.name for t in trends]
-    ).T
-    variances = pd.concat(
-        [t["var"] for t in trends], axis=1, keys=[t.index.name for t in trends]
-    ).T
+    means = pd.concat([t["mean"] for t in trends], axis=1, keys=range(len(trends))).T
+    variances = pd.concat([t["var"] for t in trends], axis=1, keys=range(len(trends))).T
     n_periods = means.columns.size
     n_series = means.index.size
     # Initialize arrays
